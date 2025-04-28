@@ -1,50 +1,63 @@
-import telebot
-
-# Environment থেকে Token নেয়ার জন্য
+from telegram import Update, ForceReply
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 import os
 
+# Environment Variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_IDS = [int(i) for i in os.getenv("ADMIN_IDS").split(',')]
-VIP_CHANNEL_LINKS = os.getenv("VIP_CHANNEL_LINKS").split(',')
-REFERRAL_LINK = os.getenv("REFERRAL_LINK")
+ADMIN_IDS = os.getenv("ADMIN_IDS", "").split(",")
+VIP_CHANNEL_LINKS = os.getenv("VIP_CHANNEL_LINKS", "").split(",")
+REFERRAL_LINK = os.getenv("REFERRAL_LINK", "https://broker-qx.pro/sign-up/?lid=YOUR_ID")
 
-bot = telebot.TeleBot(BOT_TOKEN)
+# Dummy validation function – আসল ট্রেডার আইডি চেকের জন্য এখানে API লাগবে
+def is_valid_trader_id(trader_id):
+    # এখানে আপনি আপনার broker এর API connect করে চেক করবেন
+    return trader_id.startswith("10") and len(trader_id) >= 6
 
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(message, "👋 Hello! Welcome to VIP Access Bot.\nPlease send me your Trader ID to verify.")
+# Start command
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    await update.message.reply_text(
+        f"👋 Hello {user.first_name}!\n\n"
+        "💡 Please send me your *Trader ID*.\n"
+        "I will check if it's registered under my referral link.\n\n"
+        "👉 Example: `1043281`",
+        parse_mode="Markdown"
+    )
 
-@bot.message_handler(func=lambda m: True)
-def handle_trader_id(message):
-    trader_id = message.text.strip()
+# Message handler
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    message_text = update.message.text.strip()
 
-    if not trader_id.isdigit():
-        bot.reply_to(message, "⚠️ Invalid Trader ID. Please send a correct numeric ID.")
+    # Admin Check (optional logging or approval)
+    if user_id in ADMIN_IDS:
+        await update.message.reply_text("✅ You are an admin.")
         return
 
-    # যদি অ্যাডমিন হয়, সরাসরি VIP লিংক দেয়
-    if message.from_user.id in ADMIN_IDS:
-        send_vip_links(message.chat.id)
-        return
-
-    # নরমাল ইউজারের জন্য চেক করবো
-    if check_trader_id(trader_id):
-        send_vip_links(message.chat.id)
+    if is_valid_trader_id(message_text):
+        await update.message.reply_text(
+            "🎉 Congratulations!\n"
+            "✅ Your Trader ID has been verified.\n"
+            "🔐 Here are your VIP Channel Links:\n\n" +
+            "\n".join([f"👉 {link}" for link in VIP_CHANNEL_LINKS])
+        )
     else:
-        bot.send_message(message.chat.id, f"❌ Sorry! Your Trader ID is not valid under our Referral.\n\n👉 Please create an account using our link first:\n{REFERRAL_LINK}")
+        await update.message.reply_text(
+            "❌ Your Trader ID is *not valid* or not found under our referral.\n\n"
+            f"🔗 Please create your account using our referral link:\n{REFERRAL_LINK}\n\n"
+            "Then send your correct Trader ID again.",
+            parse_mode="Markdown"
+        )
 
-def check_trader_id(trader_id):
-    """
-    এখানে এখন আমরা ধরছি সব সঠিক আইডি ১০০% ম্যানুয়ালি চেক করতে হবে না।
-    ভবিষ্যতে API দিয়ে অটো চেক করা যাবে।
-    """
-    # এখন সব ID চেক ফিক্স করে True করে দিলাম।
-    return True
+# Main Function
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-def send_vip_links(chat_id):
-    links_text = "🎉 Congratulations! Here are your VIP Channel Links:\n\n"
-    for link in VIP_CHANNEL_LINKS:
-        links_text += f"🔗 {link}\n"
-    bot.send_message(chat_id, links_text)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-bot.infinity_polling()
+    print("✅ Bot is running...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
